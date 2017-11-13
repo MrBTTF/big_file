@@ -6,14 +6,56 @@ import (
 	"math"
 	"encoding/binary"
 	"bytes"
+	"time"
 )
 
 var (
-	memorySize = int(math.Pow10(3))
+	memorySize = int(math.Pow10(8))
 	numberToFind = 18643
 )
 
+func readChunk(file *mmap.ReaderAt, i int, bytesRead *int, result chan bool, quit chan bool) {
+	buff := make([]byte, memorySize)
+
+	n, err := file.ReadAt(buff,int64(i*memorySize))
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	if findNumber(n,buff,quit){
+		result <- true
+		quit <- true
+	} else {
+		result <- false
+	}
+
+
+	*bytesRead += n
+	if *bytesRead % (100000000) == 0 {
+		fmt.Printf("Read %d megabytes\n", *bytesRead/1000000)
+	}
+
+}
+
+func findNumber(n int,buff []byte,quit chan bool) bool {
+	for j:=0; j < n; j+=8 {
+		select{
+		case <-quit:
+			return false
+		default:
+			var num int64
+			binary.Read(bytes.NewBuffer(buff[j:j+8]), binary.BigEndian, &num)
+			if num == int64(numberToFind) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func main() {
+	start := time.Now()
+
 	file, err := mmap.Open("data")
 	defer file.Close()
 
@@ -30,32 +72,26 @@ func main() {
 	}
 	fmt.Printf("Chunks count: %d chunks\n",chunksCount)
 
-	buff := make([]byte, memorySize)
+	found := false
 	bytesRead := 0
+	result := make(chan bool)
+	quit := make(chan bool)
 	for i := 0; i < chunksCount; i++{
-		n, err := file.ReadAt(buff,int64(i*memorySize))
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
+		go readChunk(file, i, &bytesRead,result,quit)
+	}
 
-		bytesRead += n
-		if bytesRead %(memorySize*1000) == 0 {
-			fmt.Printf("Read %d bytes\n", bytesRead)
-		}
-
-		for j:=0; j < n; j+=8 {
-			var num int64
-			binary.Read(bytes.NewBuffer(buff[j:j+8]), binary.BigEndian, &num)
-			if num == int64(numberToFind) {
-				fmt.Printf("Number %d found in chunk %d index %d\n",numberToFind,i, j/8)
-				return
-			}
+	for b := range result {
+		fmt.Println(b)
+		if b{
+			fmt.Printf("Number %d found\n",numberToFind)
+			found = true
+			break
 		}
 
 	}
+	if !found{
+		fmt.Printf("Number %d not found\n",numberToFind)
+	}
 
-	fmt.Printf("Number %d not found\n",numberToFind)
-
-
+	fmt.Printf("Time took %s\n", time.Since(start))
 }

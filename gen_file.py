@@ -1,6 +1,6 @@
 import random
 
-count = 10**6
+count = 10**8
 
 with open("data","wb+") as f:
     for i in range(count):
